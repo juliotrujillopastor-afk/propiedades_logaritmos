@@ -77,7 +77,7 @@
         <div class="bg-slate-900/80 border border-slate-700/80 px-3 py-1.5 rounded-xl flex items-center gap-2.5">
           <div class="text-amber-400 font-bold" id="level-badge">Niv. 1</div>
           <div class="w-20 sm:w-28 bg-slate-800 h-2 rounded-full overflow-hidden border border-slate-700">
-            <div id="xp-bar" class="bg-gradient-to-r from-amber-500 to-yellow-400 h-full w-0% transition-all duration-500"></div>
+            <div id="xp-bar" class="bg-gradient-to-r from-amber-500 to-yellow-400 h-full w-[0%] transition-all duration-500"></div>
           </div>
           <span class="text-slate-400 font-mono text-[11px]" id="xp-text">0/100 XP</span>
         </div>
@@ -544,17 +544,22 @@
         { id: 'streak_10', title: 'Imparable', desc: 'Consigue una racha de 10 respuestas correctas', icon: '⚡', unlocked: false },
         { id: 'speed_demon', title: 'Rayo Logarítmico', desc: 'Responde en menos de 5 segundos', icon: '⏱️', unlocked: false },
         { id: 'challenge_100', title: 'Campeón Contrarreloj', desc: 'Consigue 100+ puntos en el modo Desafío', icon: '🏆', unlocked: false },
-        { id: 'hard_master', title: 'Maestro Avanzado', desc: 'Resuelve un ejercicio de nivel Avanzado', icon: '🌟', unlocked: false }
+        { id: 'hard_master', title: 'Maestro Avanzado', desc: 'Resuelve un ejercicio de nivel Avanzado', icon: '🌟', unlocked: false },
+        { id: 'theory_master', title: 'Explorador Teórico', desc: 'Prueba el laboratorio interactivo de teoría', icon: '🧪', unlocked: false }
       ]
     };
 
-    // SOUND SYNTHESIS USING WEB AUDIO API
+    // SOUND SYNTHESIS USING WEB AUDIO API (REUSED GLOBAL CONTEXT TO PREVENT MEMORY LEAK)
+    let audioCtx = null;
+
     function playSound(type) {
       if (!state.soundEnabled) return;
       try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (!AudioCtx) return;
-        const ctx = new AudioCtx();
+        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtxClass) return;
+        if (!audioCtx) audioCtx = new AudioCtxClass();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const ctx = audioCtx;
         
         if (type === 'correct') {
           const notes = [523.25, 659.25, 784.00]; // C5, E5, G5
@@ -713,7 +718,15 @@
         hint = `Recuerda la definición: $\\log_a(b) = c \\iff a^c = b$. Busca a qué número elevar ${base} para obtener ${arg}.`;
         explanation = `Aplicamos la definición básica de logaritmo $\\log_a(b) = c \\iff a^c = b$.<br>Buscamos el exponente $c$ tal que $${base}^c = ${arg}$. Como $${base}^{${exp}} = ${arg}$, el resultado es <strong>${exp}</strong>.`;
 
-        options = [exp.toString(), (exp + 1).toString(), (exp > 0 ? exp - 1 : exp + 2).toString(), (base).toString()];
+        const optsSet = new Set([exp.toString()]);
+        let delta = 1;
+        while (optsSet.size < 4) {
+          optsSet.add((exp + delta).toString());
+          if (exp - delta >= 0) optsSet.add((exp - delta).toString());
+          optsSet.add((base + delta).toString());
+          delta++;
+        }
+        options = Array.from(optsSet).slice(0, 4);
       } 
       else if (diff === 'medium') {
         const type = getRandomInt(1, 2);
@@ -1060,6 +1073,18 @@
       triggerMathRender();
     }
 
+    function insertSymbol(sym) {
+      const inp = document.getElementById('direct-user-input');
+      if (!inp) return;
+      const start = inp.selectionStart || inp.value.length;
+      const end = inp.selectionEnd || inp.value.length;
+      const val = inp.value;
+      inp.value = val.substring(0, start) + sym + val.substring(end);
+      inp.focus();
+      const newPos = sym.endsWith('()') ? start + sym.length - 1 : start + sym.length;
+      inp.setSelectionRange(newPos, newPos);
+    }
+
     function renderAnswersContainer() {
       const q = state.practice.currentQuestion;
       if (!q) return;
@@ -1085,15 +1110,31 @@
         container.appendChild(grid);
       } else {
         const wrapper = document.createElement('div');
-        wrapper.className = 'max-w-md mx-auto space-y-3';
+        wrapper.className = 'max-w-xl mx-auto space-y-3';
         wrapper.innerHTML = `
+          <!-- Quick Math Buttons Bar -->
+          <div class="flex flex-wrap gap-1.5 justify-center mb-1">
+            <button type="button" onclick="insertSymbol('log()')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-indigo-300 font-mono font-medium">log()</button>
+            <button type="button" onclick="insertSymbol('^')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-indigo-300 font-mono font-medium">^</button>
+            <button type="button" onclick="insertSymbol('sqrt()')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-indigo-300 font-mono font-medium">√()</button>
+            <button type="button" onclick="insertSymbol('/')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-indigo-300 font-mono font-medium">/</button>
+            <button type="button" onclick="insertSymbol('*')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-indigo-300 font-mono font-bold">•</button>
+            <button type="button" onclick="insertSymbol('+')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-indigo-300 font-mono font-medium">+</button>
+            <button type="button" onclick="insertSymbol('-')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-indigo-300 font-mono font-medium">-</button>
+            <button type="button" onclick="insertSymbol('x')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 font-mono font-bold">x</button>
+            <button type="button" onclick="insertSymbol('y')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 font-mono font-bold">y</button>
+            <button type="button" onclick="insertSymbol('z')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 font-mono font-bold">z</button>
+            <button type="button" onclick="insertSymbol('a')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 font-mono font-bold">a</button>
+            <button type="button" onclick="insertSymbol('b')" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 font-mono font-bold">b</button>
+          </div>
+
           <div class="flex gap-2">
-            <input type="text" id="direct-user-input" placeholder="Ej: 3, -2, 1/2, \\log(a*b)..." class="flex-grow bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-indigo-500 font-mono">
-            <button onclick="handleDirectInputSubmit()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-5 py-3 rounded-xl text-sm transition-colors">
+            <input type="text" id="direct-user-input" onkeydown="if(event.key==='Enter') handleDirectInputSubmit()" placeholder="Ej: 3, -1/2, 0.5, log(x/y), log(x^2*y^3), 3log(x) + log(y)..." class="flex-grow bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-indigo-500 font-mono shadow-inner">
+            <button onclick="handleDirectInputSubmit()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-5 py-3 rounded-xl text-sm transition-colors shadow-lg">
               Comprobar
             </button>
           </div>
-          <p class="text-[11px] text-slate-400 text-center">Puedes escribir números enteros, fracciones (1/2) o expresiones LaTeX básicas.</p>
+          <p class="text-[11px] text-slate-400 text-center">Puedes escribir en texto normal. Ejemplos: <code class="text-indigo-300">1/2</code>, <code class="text-indigo-300">0.5</code>, <code class="text-indigo-300">log(a*b)</code>, <code class="text-indigo-300">log(x/y)</code>, <code class="text-indigo-300">3log(x) + log(y)</code></p>
         `;
         container.appendChild(wrapper);
       }
@@ -1105,14 +1146,139 @@
       handleAnswer(input, null);
     }
 
-    function cleanMathString(str) {
-      if (!str) return '';
-      return str.toString()
-        .replace(/\\/g, '')
-        .replace(/\s+/g, '')
-        .replace(/\\cdot/g, '*')
-        .replace(/\*/g, '')
-        .toLowerCase();
+    // ROBUST MATH PARSER & CANONICAL NORMALIZER (FOR NON-LATEX USER INPUT)
+    function parseMathToCanonical(str) {
+      if (str === null || str === undefined) return '';
+      let s = str.toString().trim();
+
+      // 1. Remove LaTeX layout wrappers
+      s = s.replace(/\\left|\\right/g, '');
+      s = s.replace(/\\cdot/g, '*');
+      s = s.replace(/\\times/g, '*');
+      s = s.replace(/•/g, '*');
+
+      // Convert \frac{A}{B} -> (A)/(B) recursively
+      while (s.includes('\\frac')) {
+        s = s.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)');
+      }
+
+      // Convert \sqrt[n]{x} -> (x)^(1/n) and \sqrt{x} -> sqrt(x)
+      s = s.replace(/\\sqrt\[([^\]]+)\]\{([^{}]+)\}/g, '($2)^(1/($1))');
+      s = s.replace(/\\sqrt\{([^{}]+)\}/g, 'sqrt($1)');
+
+      // Convert unicode roots
+      s = s.replace(/√\(([^)]+)\)/g, 'sqrt($1)');
+      s = s.replace(/√([a-zA-Z0-9]+)/g, 'sqrt($1)');
+
+      // Strip any remaining backslashes
+      s = s.replace(/\\/g, '');
+
+      // Lowercase & strip whitespace
+      s = s.toLowerCase().replace(/\s+/g, '');
+
+      // Normalize decimals without leading zero: .5 -> 0.5
+      s = s.replace(/(^|[^0-9.])\.(\d+)/g, (m, p1, p2) => p1 + '0.' + p2);
+
+      // Normalize log arguments without explicit parenthesis: log x -> log(x)
+      s = s.replace(/log([a-z0-9]+)/g, 'log($1)');
+
+      // Clean redundant fraction parens: ((a^3)/(b^2)) -> (a^3/b^2) or ((x)/(y)) -> (x/y)
+      s = s.replace(/\(\(([^()]+)\)\/\(([^()]+)\)\)/g, '($1/$2)');
+
+      // Insert multiplication for implicit forms: 3log(x) -> 3*log(x), 10x -> 10*x, 2(a) -> 2*(a)
+      s = s.replace(/(\d)(log|sqrt|[a-z]|\()/g, '$1*$2');
+      s = s.replace(/([a-z\)])(log|sqrt)/g, '$1*$2');
+
+      return s;
+    }
+
+    // SAFE MATHEMATICAL EXPRESSION EVALUATOR
+    function evaluateMathExpr(str, vars = {}) {
+      try {
+        let expr = parseMathToCanonical(str);
+        if (!expr) return NaN;
+
+        // Substitute variable values if any
+        for (const [v, val] of Object.entries(vars)) {
+          const reg = new RegExp(`\\b${v}\\b`, 'g');
+          expr = expr.replace(reg, `(${val})`);
+        }
+
+        // Convert powers cleanly without breaking log() or sqrt() function calls
+        let prev = "";
+        while (expr.includes('^') && expr !== prev) {
+          prev = expr;
+          expr = expr.replace(/\(([^()]+)\)\^([a-zA-Z0-9_.]+)/g, 'Math.pow($1, $2)');
+          expr = expr.replace(/\b([a-zA-Z0-9_.]+)\^([a-zA-Z0-9_.]+)/g, 'Math.pow($1, $2)');
+        }
+
+        // Replace log(...) and sqrt(...) with Math equivalents
+        expr = expr.replace(/log\(/g, 'Math.log10(');
+        expr = expr.replace(/sqrt\(/g, 'Math.sqrt(');
+
+        // Security check: only allow safe JS math operations
+        if (/[^0-9.+\-*/() ,Mathpowlog10sqrt]/.test(expr)) {
+          return NaN;
+        }
+
+        const fn = new Function(`return ${expr};`);
+        const res = fn();
+        return (typeof res === 'number' && !isNaN(res) && isFinite(res)) ? res : NaN;
+      } catch (e) {
+        return NaN;
+      }
+    }
+
+    // MULTI-STAGE EQUIVALENCE CHECK (STRING + NUMERIC + ALGEBRAIC TEST POINTS)
+    function compareAnswers(userAns, correctAns) {
+      if (!userAns) return false;
+
+      const normUser = parseMathToCanonical(userAns);
+      const normCorrect = parseMathToCanonical(correctAns);
+
+      // 1. Direct Canonical String Match
+      if (normUser === normCorrect) return true;
+
+      // 2. Numerical Equality Check (handles fractions vs decimals: 1/2 vs 0.5, 2/3 vs 0.67, 1/8 vs 0.125)
+      const numUser = evaluateMathExpr(userAns);
+      const numCorrect = evaluateMathExpr(correctAns);
+
+      if (!isNaN(numUser) && !isNaN(numCorrect)) {
+        if (Math.abs(numUser - numCorrect) < 0.015) {
+          return true;
+        }
+      }
+
+      // 3. Algebraic Equivalence Check (evaluates expressions at test points for x, y, z, a, b)
+      const testVarsList = [
+        { a: 2.3, b: 3.7, x: 4.1, y: 5.3, z: 6.7 },
+        { a: 1.8, b: 4.2, x: 3.5, y: 2.9, z: 5.1 }
+      ];
+
+      let matchesAllTests = true;
+      let validTestsCount = 0;
+
+      for (const vars of testVarsList) {
+        const valUser = evaluateMathExpr(userAns, vars);
+        const valCorrect = evaluateMathExpr(correctAns, vars);
+
+        if (!isNaN(valUser) && !isNaN(valCorrect)) {
+          validTestsCount++;
+          if (Math.abs(valUser - valCorrect) > 0.001) {
+            matchesAllTests = false;
+            break;
+          }
+        } else {
+          matchesAllTests = false;
+          break;
+        }
+      }
+
+      if (validTestsCount > 0 && matchesAllTests) {
+        return true;
+      }
+
+      return false;
     }
 
     function handleAnswer(selectedAnswer, btnEl) {
@@ -1120,14 +1286,7 @@
       state.practice.isAnswered = true;
 
       const q = state.practice.currentQuestion;
-      const cleanUser = cleanMathString(selectedAnswer);
-      const cleanCorrect = cleanMathString(q.correctAnswer);
-
-      // Check equivalence (handles 1/2 vs 0.5, spaces, latex slash, etc.)
-      let isCorrect = (cleanUser === cleanCorrect);
-      if (!isCorrect && !isNaN(evalFraction(cleanUser)) && !isNaN(evalFraction(cleanCorrect))) {
-        isCorrect = Math.abs(evalFraction(cleanUser) - evalFraction(cleanCorrect)) < 0.001;
-      }
+      const isCorrect = compareAnswers(selectedAnswer, q.correctAnswer);
 
       state.totalAnswered++;
       const timeTaken = (Date.now() - state.practice.startTime) / 1000;
@@ -1184,18 +1343,6 @@
       fbExp.innerHTML = q.explanation;
       updateHeaderHUD();
       triggerMathRender();
-    }
-
-    function evalFraction(str) {
-      try {
-        if (str.includes('/')) {
-          const parts = str.split('/');
-          return parseFloat(parts[0]) / parseFloat(parts[1]);
-        }
-        return parseFloat(str);
-      } catch (e) {
-        return NaN;
-      }
     }
 
     // ================= XP & LEVEL SYSTEM =================
@@ -1278,10 +1425,9 @@
       if (!state.challenge.active) return;
 
       const q = state.challenge.currentQuestion;
-      const cleanUser = cleanMathString(selected);
-      const cleanCorrect = cleanMathString(q.correctAnswer);
+      const isCorrect = compareAnswers(selected, q.correctAnswer);
 
-      if (cleanUser === cleanCorrect) {
+      if (isCorrect) {
         state.challenge.correctCount++;
         state.challenge.score += 10;
         playSound('correct');
